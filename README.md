@@ -26,6 +26,8 @@ For `marble-1.1`:
 
 The upload screen uses the ordinary-photo figure unless you mark the file as a 360° panorama. Media upload and operation polling do not themselves cost credits. A low balance can still finish a request and create an overage invoice; the pricing page explains that.
 
+World names are sent as `display_name` and capped at 64 characters. `is_pano` is a JSON boolean (`false` for an ordinary photo, `true` for a panorama), which is what the live API accepts. A completed operation includes `cost.total_credits` and line items. The viewer shows that settled charge next to the estimate from the table above.
+
 FAL objects and sound are extra and stay off unless `FAL_KEY` is set and you opt in. FAL prices them on their own invoice.
 
 ## Setup
@@ -50,10 +52,12 @@ Create a World Labs key from the platform API keys page after adding API credits
 
 1. `POST /marble/v1/media-assets:prepare_upload`
 2. `PUT` the image to the returned signed URL
-3. `POST /marble/v1/worlds:generate` with `source: "media_asset"`, model `marble-1.1`, and `is_pano` `"false"` or `"true"`
+3. `POST /marble/v1/worlds:generate` with `source: "media_asset"`, model `marble-1.1`, and `is_pano` as the boolean `false` or `true`
 4. `GET /marble/v1/operations/{operation_id}` until `done` is true
 
-Splats are loaded in the browser with [Spark](https://sparkjs.dev/). Marble SPZ files are scaled with `semantics_metadata.metric_scale_factor`, shifted by `ground_plane_offset`, then rotated 180° around X, which is the OpenCV-to-Three.js conversion described in the [World Labs SPZ rendering notes](https://docs.worldlabs.ai/api/rendering-spz).
+Live operations report a status and a description. They do not report a numeric progress fraction, so the waiting screen uses an indeterminate bar and that description. Mock mode still shows a real percent over its eight-second run.
+
+Splats are loaded in the browser with [Spark](https://sparkjs.dev/). Completed worlds include SPZ sizes `100k`, `150k`, `500k`, and `full_res`. The viewer starts on `100k`. Marble SPZ files are scaled with `semantics_metadata.metric_scale_factor`, shifted by `ground_plane_offset`, then rotated 180° around X, which is the OpenCV-to-Three.js conversion described in the [World Labs SPZ rendering notes](https://docs.worldlabs.ai/api/rendering-spz). The world id is read from `world_id`. If the API returns an empty `display_name`, the viewer uses the name you typed, then the caption.
 
 ## Mock mode
 

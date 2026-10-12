@@ -1,15 +1,19 @@
-import { WORLDLABS_MODEL } from "./pricing";
-import type { PublicOperation, SplatVariant } from "./types";
+import { CREDITS_PER_DOLLAR, formatUsd, roundUsd, WORLDLABS_MODEL } from "./pricing";
+import type { OperationCharge, PublicOperation, SplatVariant } from "./types";
 
 export const WORLDLABS_API = "https://api.worldlabs.ai/marble/v1";
 
+/** World Labs rejects display_name longer than 64 characters. */
+export const DISPLAY_NAME_MAX = 64;
+
 const VARIANT_LABELS: Record<string, string> = {
   "100k": "100k splats",
+  "150k": "150k splats",
   "500k": "500k splats",
   full_res: "Full resolution",
 };
 
-const VARIANT_ORDER = ["100k", "500k", "full_res"];
+const VARIANT_ORDER = ["100k", "150k", "500k", "full_res"];
 
 export type StartWorldInput = {
   apiKey: string;
@@ -62,7 +66,7 @@ export async function startWorldGeneration(input: StartWorldInput): Promise<stri
   const operation = await worldLabsJson(fetchImpl, input.apiKey, "/worlds:generate", {
     method: "POST",
     body: {
-      display_name: input.displayName.slice(0, 80),
+      display_name: input.displayName.slice(0, DISPLAY_NAME_MAX),
       model: WORLDLABS_MODEL,
       world_prompt: {
         type: "image",
@@ -70,7 +74,7 @@ export async function startWorldGeneration(input: StartWorldInput): Promise<stri
           source: "media_asset",
           media_asset_id: mediaAssetId,
         },
-        is_pano: input.isPano ? "true" : "false",
+        is_pano: input.isPano,
         ...(textPrompt ? { text_prompt: textPrompt.slice(0, 2000) } : {}),
       },
     },
@@ -118,9 +122,10 @@ export function toPublicOperation(operationId: string, operation: unknown): Publ
       stringField(progress, "description") ||
       (failed ? "World generation failed." : done ? "World generation completed." : "World generation in progress"),
     progress: null,
-    displayName: stringField(world, "display_name") || "Untitled world",
+    displayName: stringField(world, "display_name") ?? "",
     error,
-    worldId: stringField(world, "id") || stringField(metadata, "world_id"),
+    cost: operationCharge(record.cost),
+    worldId: stringField(world, "world_id") || stringField(world, "id") || stringField(metadata, "world_id"),
     marbleUrl: stringField(world, "world_marble_url"),
     caption: stringField(assets, "caption"),
     thumbnailUrl: httpsField(assets, "thumbnail_url"),
@@ -151,6 +156,15 @@ export function splatVariants(value: unknown): SplatVariant[] {
 
 export function preferredSplat(variants: SplatVariant[]): SplatVariant | null {
   return variants.find((variant) => variant.id === "100k") ?? variants[0] ?? null;
+}
+
+/** Prefer the name the user sent, then a non-empty API name, then the caption. */
+export function operationTitle(input: {
+  sentName?: string | null;
+  displayName?: string | null;
+  caption?: string | null;
+}): string {
+  return cleanLabel(input.sentName) || cleanLabel(input.displayName) || cleanLabel(input.caption) || "World";
 }
 
 export function assetUrl(operation: PublicOperation, asset: string, variant?: string | null): string | null {
@@ -259,6 +273,32 @@ function httpsField(record: Record<string, unknown>, key: string): string | null
 function numberField(record: Record<string, unknown>, key: string): number | null {
   const value = record[key];
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function integerField(record: Record<string, unknown>, key: string): number | null {
+  const value = numberField(record, key);
+  return value !== null && Number.isInteger(value) ? value : null;
+}
+
+function operationCharge(value: unknown): OperationCharge | null {
+  const cost = asRecord(value);
+  const totalCredits = integerField(cost, "total_credits");
+  if (totalCredits === null || totalCredits < 0) return null;
+  const usd = roundUsd(totalCredits / CREDITS_PER_DOLLAR);
+  const lineItems = Array.isArray(cost.line_items)
+    ? cost.line_items.flatMap((item) => {
+        const record = asRecord(item);
+        const name = stringField(record, "name");
+        const credits = integerField(record, "credits");
+        if (!name || credits === null) return [];
+        return [{ name, credits }];
+      })
+    : [];
+  return { totalCredits, usd, usdLabel: formatUsd(usd), lineItems };
+}
+
+function cleanLabel(value: string | null | undefined): string {
+  return value?.trim() ?? "";
 }
 
 function isHttpsUrl(value: string): boolean {

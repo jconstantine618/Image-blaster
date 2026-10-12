@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { assetUrl, fetchOperation, splatVariants, startWorldGeneration, toPublicOperation, WORLDLABS_API } from "./worldlabs";
+import { assetUrl, fetchOperation, operationTitle, splatVariants, startWorldGeneration, toPublicOperation, WORLDLABS_API } from "./worldlabs";
 
 test("startWorldGeneration uploads then submits marble-1.1 without polling", async () => {
   const calls: { url: string; method: string; body?: string; headers: Headers }[] = [];
@@ -36,7 +36,7 @@ test("startWorldGeneration uploads then submits marble-1.1 without polling", asy
     bytes: new Uint8Array([1, 2, 3]),
     fileName: "photo.jpg",
     extension: "jpg",
-    displayName: "Studio",
+    displayName: "S".repeat(80),
     isPano: false,
     textPrompt: "A quiet studio",
     fetchImpl,
@@ -46,12 +46,15 @@ test("startWorldGeneration uploads then submits marble-1.1 without polling", asy
   assert.equal(calls.length, 3);
   assert.equal(calls[0]?.headers.get("WLT-Api-Key"), "secret-key");
   const generate = JSON.parse(calls[2]?.body ?? "{}") as {
+    display_name: string;
     model: string;
-    world_prompt: { type: string; is_pano: string; image_prompt: { source: string; media_asset_id: string } };
+    world_prompt: { type: string; is_pano: boolean; image_prompt: { source: string; media_asset_id: string } };
   };
+  assert.equal(generate.display_name, "S".repeat(64));
   assert.equal(generate.model, "marble-1.1");
   assert.equal(generate.world_prompt.type, "image");
-  assert.equal(generate.world_prompt.is_pano, "false");
+  assert.equal(typeof generate.world_prompt.is_pano, "boolean");
+  assert.equal(generate.world_prompt.is_pano, false);
   assert.equal(generate.world_prompt.image_prompt.source, "media_asset");
   assert.equal(generate.world_prompt.image_prompt.media_asset_id, "asset-1");
   assert.equal(calls.some((call) => call.url.includes("/operations/")), false);
@@ -69,9 +72,18 @@ test("fetchOperation polls GET /operations/{id} and reads splat urls", async () 
         progress: { status: "SUCCEEDED", description: "World generation completed successfully" },
         world_id: "world-9",
       },
+      cost: {
+        total_credits: 1580,
+        line_items: [
+          { name: "pano", credits: 80 },
+          { name: "world", credits: 1500 },
+          { name: "ignored", credits: 1.5 },
+        ],
+      },
       response: {
-        id: "world-9",
-        display_name: "Studio",
+        id: "world-from-id",
+        world_id: "world-9",
+        display_name: "",
         world_marble_url: "https://marble.worldlabs.ai/world/world-9",
         assets: {
           caption: "A studio",
@@ -79,8 +91,9 @@ test("fetchOperation polls GET /operations/{id} and reads splat urls", async () 
           splats: {
             spz_urls: {
               full_res: "https://cdn.example/full.spz",
-              "100k": "https://cdn.example/100k.spz",
               "500k": "https://cdn.example/500k.spz",
+              "150k": "https://cdn.example/150k.spz",
+              "100k": "https://cdn.example/100k.spz",
             },
             semantics_metadata: { metric_scale_factor: 1.23, ground_plane_offset: 0.42 },
           },
@@ -94,15 +107,89 @@ test("fetchOperation polls GET /operations/{id} and reads splat urls", async () 
   const operation = await fetchOperation("secret-key", "op-123", fetchImpl);
   assert.equal(requested, `${WORLDLABS_API}/operations/op-123`);
   assert.equal(operation.done, true);
+  assert.equal(operation.progress, null);
+  assert.equal(operation.worldId, "world-9");
+  assert.equal(operation.displayName, "");
+  assert.equal(operationTitle({ sentName: "Studio", displayName: operation.displayName, caption: operation.caption }), "Studio");
+  assert.equal(operationTitle({ displayName: operation.displayName, caption: operation.caption }), "A studio");
+  assert.equal(operation.cost?.totalCredits, 1580);
+  assert.equal(operation.cost?.usd, 1.26);
+  assert.equal(operation.cost?.usdLabel, "$1.26");
+  assert.deepEqual(operation.cost?.lineItems, [
+    { name: "pano", credits: 80 },
+    { name: "world", credits: 1500 },
+  ]);
   assert.equal(operation.coordinateFrame, "marble");
   assert.equal(operation.semantics.metricScaleFactor, 1.23);
   assert.equal(operation.semantics.groundPlaneOffset, 0.42);
   assert.deepEqual(
     operation.splatVariants.map((variant) => variant.id),
-    ["100k", "500k", "full_res"],
+    ["100k", "150k", "500k", "full_res"],
   );
+  assert.equal(operation.splatVariants.find((variant) => variant.id === "150k")?.label, "150k splats");
   assert.equal(assetUrl(operation, "splat", "500k"), "https://cdn.example/500k.spz");
   assert.equal(assetUrl(operation, "splat"), "https://cdn.example/100k.spz");
+});
+
+test("is_pano true is sent as a boolean", async () => {
+  let isPano: unknown;
+  const fetchImpl: typeof fetch = async (input, init) => {
+    const url = String(input);
+    if (url.endsWith("/media-assets:prepare_upload")) {
+      return json({
+        media_asset: { media_asset_id: "asset-1" },
+        upload_info: { upload_url: "https://uploads.example/put", upload_method: "PUT", required_headers: {} },
+      });
+    }
+    if (url === "https://uploads.example/put") return new Response(null, { status: 200 });
+    if (url.endsWith("/worlds:generate")) {
+      isPano = (JSON.parse(String(init?.body)) as { world_prompt: { is_pano: unknown } }).world_prompt.is_pano;
+      return json({ operation_id: "op-pano" });
+    }
+    throw new Error(`unexpected ${url}`);
+  };
+
+  await startWorldGeneration({
+    apiKey: "secret-key",
+    bytes: new Uint8Array([1]),
+    fileName: "pano.jpg",
+    extension: "jpg",
+    displayName: "Pano",
+    isPano: true,
+    fetchImpl,
+  });
+  assert.equal(isPano, true);
+});
+
+test("world id prefers world_id, then id, then metadata", () => {
+  const preferred = toPublicOperation("op", {
+    done: true,
+    response: { world_id: "from-world-id", id: "from-id", display_name: "Named", assets: {} },
+  });
+  assert.equal(preferred.worldId, "from-world-id");
+  assert.equal(preferred.displayName, "Named");
+
+  const legacy = toPublicOperation("op", { done: true, response: { id: "legacy-id", assets: {} } });
+  assert.equal(legacy.worldId, "legacy-id");
+
+  const nested = toPublicOperation("op", {
+    done: true,
+    response: { world: { world_id: "nested-id", id: "nested-legacy", display_name: "Nested", assets: {} } },
+  });
+  assert.equal(nested.worldId, "nested-id");
+  assert.equal(nested.displayName, "Nested");
+
+  const fromMetadata = toPublicOperation("op", {
+    done: false,
+    metadata: { world_id: "meta-id" },
+    response: {},
+  });
+  assert.equal(fromMetadata.worldId, "meta-id");
+  assert.equal(fromMetadata.cost, null);
+});
+
+test("a blank title falls back to World when name and caption are empty", () => {
+  assert.equal(operationTitle({ sentName: "  ", displayName: "", caption: "" }), "World");
 });
 
 test("in-progress operations do not invent a percentage", () => {

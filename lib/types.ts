@@ -6,6 +6,19 @@ export type SplatVariant = {
   url: string;
 };
 
+export type OperationChargeLine = {
+  name: string;
+  credits: number;
+};
+
+/** Settled World Labs charge from a completed operation. Null until the API returns cost. */
+export type OperationCharge = {
+  totalCredits: number;
+  usd: number;
+  usdLabel: string;
+  lineItems: OperationChargeLine[];
+};
+
 export type PublicOperation = {
   operationId: string;
   mode: GenerationMode;
@@ -13,10 +26,12 @@ export type PublicOperation = {
   failed: boolean;
   status: string;
   description: string;
-  /** 0 to 1 when the server can estimate it. Null while a live job is running. */
+  /** 0 to 1 when the server can estimate it. Live operations stay null: the API reports status text only. */
   progress: number | null;
+  /** API display_name when it is non-empty. "" when the API omits it or returns a blank string. */
   displayName: string;
   error: string | null;
+  cost: OperationCharge | null;
   worldId: string | null;
   marbleUrl: string | null;
   caption: string | null;

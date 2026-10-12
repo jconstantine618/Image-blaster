@@ -121,6 +121,14 @@ button { cursor: pointer; }
 .veil h2 { font-family: var(--font-serif), Georgia, serif; font-weight: 520; font-size: 42px; margin: 0 0 8px; }
 .bar { width: min(420px, 80vw); height: 8px; border-radius: 99px; background: #2c2924; overflow: hidden; margin: 18px auto; }
 .bar span { display: block; height: 100%; background: linear-gradient(90deg, var(--brass), var(--brass-bright)); width: 0; }
+.bar.indeterminate span { width: 38%; animation: marble-indeterminate 1.35s ease-in-out infinite; }
+@keyframes marble-indeterminate {
+  0% { transform: translateX(-110%); }
+  100% { transform: translateX(280%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bar.indeterminate span { animation: none; transform: none; width: 100%; opacity: 0.55; }
+}
 .hud { top: 16px; left: 16px; right: 16px; display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; pointer-events: none; }
 .hud > * { pointer-events: auto; }
 .chip, .menu {

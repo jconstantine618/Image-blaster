@@ -2,7 +2,7 @@ import { generationMode, worldLabsKey } from "@/lib/env";
 import { imageExtension, MAX_IMAGE_BYTES } from "@/lib/images";
 import { createMockOperationId } from "@/lib/mock-world";
 import { quoteMarbleGeneration } from "@/lib/pricing";
-import { startWorldGeneration, WorldLabsError } from "@/lib/worldlabs";
+import { DISPLAY_NAME_MAX, startWorldGeneration, WorldLabsError } from "@/lib/worldlabs";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -23,7 +23,7 @@ export async function POST(request: Request) {
   }
 
   const isPano = form.get("isPano") === "true";
-  const displayName = stringField(form.get("displayName"), "Untitled world").slice(0, 80);
+  const displayName = stringField(form.get("displayName"), "Untitled world").slice(0, DISPLAY_NAME_MAX);
   const textPrompt = stringField(form.get("textPrompt"), "").trim();
   const quote = quoteMarbleGeneration(isPano ? "pano" : "non-pano");
 

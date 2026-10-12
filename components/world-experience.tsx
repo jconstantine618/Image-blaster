@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { preferredSplat } from "@/lib/worldlabs";
+import { operationTitle, preferredSplat } from "@/lib/worldlabs";
 import { loadSession, sourceImageFor, type StoredSession } from "@/lib/session";
-import type { PublicOperation } from "@/lib/types";
+import type { OperationCharge, PublicOperation } from "@/lib/types";
 import { watchExtras, type ExtraState } from "@/components/extras";
 import { SplatStage, type StageObject } from "@/components/splat-stage";
 
@@ -47,7 +47,17 @@ export function WorldExperience({ operationId }: { operationId: string }) {
     return watchExtras(operationId, stored.extras, image, setExtras);
   }, [operationId]);
 
-  const title = session?.displayName || operation?.displayName || "World";
+  const title = operationTitle({
+    sentName: session?.displayName,
+    displayName: operation?.displayName,
+    caption: operation?.caption,
+  });
+  const detail =
+    operation?.caption && operation.caption !== title
+      ? operation.caption
+      : operation?.mode === "mock"
+        ? "Built-in courtyard. No credits spent."
+        : operation?.description;
   const variant = operation?.splatVariants.find((item) => item.id === variantId) ?? (operation ? preferredSplat(operation.splatVariants) : null);
   const showViewer = Boolean(operation?.done && variant && !splatError);
   const objects: StageObject[] = (extras?.objects ?? [])
@@ -75,11 +85,16 @@ export function WorldExperience({ operationId }: { operationId: string }) {
             <h2>{operation?.failed ? "Generation failed" : operation?.done ? "Opening the world" : "Building the world"}</h2>
             <p>{error || splatError || operation?.description || "Contacting the server…"}</p>
             {operation && !operation.done && !operation.failed ? (
-              <div className="bar" aria-hidden>
-                <span style={{ width: operation.progress === null ? "35%" : `${Math.round(operation.progress * 100)}%` }} />
+              <div className={operation.progress === null ? "bar indeterminate" : "bar"} aria-hidden>
+                {operation.progress === null ? (
+                  <span />
+                ) : (
+                  <span style={{ width: `${Math.round(operation.progress * 100)}%` }} />
+                )}
               </div>
             ) : null}
-            {operation?.mode === "live" && !operation.done ? <p>Marble usually takes about five minutes. This page keeps polling the operation.</p> : null}
+            {operation?.cost ? <p>{chargeLabel(operation.cost)}</p> : null}
+            {operation?.mode === "live" && !operation.done ? <p>Marble often takes about five to six minutes. This page keeps polling the operation.</p> : null}
             {session?.previewUrl ? <img src={session.previewUrl} alt="" style={{ width: 180, height: 120, objectFit: "cover", borderRadius: 12, marginTop: 12 }} /> : null}
             <div className="row" style={{ justifyContent: "center" }}>
               <Link href="/" className="ghost">Back</Link>
@@ -93,7 +108,8 @@ export function WorldExperience({ operationId }: { operationId: string }) {
           <div className="hud">
             <div className="chip">
               <h2>{title}</h2>
-              <p>{operation?.caption || (operation?.mode === "mock" ? "Built-in courtyard. No credits spent." : operation?.description)}</p>
+              {detail ? <p>{detail}</p> : null}
+              {operation?.cost ? <p>{chargeLabel(operation.cost)}</p> : null}
             </div>
             <div className="menu">
               {operation?.splatVariants.map((item) => (
@@ -117,6 +133,14 @@ export function WorldExperience({ operationId }: { operationId: string }) {
       ) : null}
     </main>
   );
+}
+
+function chargeLabel(cost: OperationCharge): string {
+  const credits = cost.totalCredits.toLocaleString("en-US");
+  const lines = cost.lineItems
+    .map((item) => `${item.name} ${item.credits.toLocaleString("en-US")}`)
+    .join(", ");
+  return lines ? `Charged ${credits} credits (${cost.usdLabel}) — ${lines}` : `Charged ${credits} credits (${cost.usdLabel})`;
 }
 
 function ExtrasPanel({ extras }: { extras: ExtraState }) {

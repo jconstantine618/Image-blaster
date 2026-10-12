@@ -158,7 +158,7 @@ export function Studio() {
           </div>
           <label className="field">
             <span>World name</span>
-            <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} maxLength={80} />
+            <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} maxLength={64} />
           </label>
           <label className="field">
             <span>Optional note for World Labs</span>

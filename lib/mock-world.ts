@@ -44,6 +44,7 @@ export function mockOperation(operationId: string, now = Date.now()): PublicOper
     progress: fraction,
     displayName: "Courtyard study",
     error: null,
+    cost: null,
     worldId: null,
     marbleUrl: null,
     caption: "A stone room opening onto a small garden. Built-in mock splat, not a World Labs generation.",

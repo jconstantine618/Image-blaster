@@ -18,6 +18,7 @@ test("mock operation ids round-trip and advance to a downloadable splat", () => 
   assert.equal(done.done, true);
   assert.equal(done.status, "SUCCEEDED");
   assert.equal(done.coordinateFrame, "three");
+  assert.equal(done.cost, null);
   assert.equal(done.splatVariants[0]?.url, "/mock/courtyard.splat");
 });
 
