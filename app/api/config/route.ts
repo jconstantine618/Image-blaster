@@ -8,29 +8,29 @@ export const runtime = "nodejs";
 export function GET() {
   const nonPano = quoteMarbleGeneration("non-pano");
   const pano = quoteMarbleGeneration("pano");
+  const multiImage = quoteMarbleGeneration("multi-image");
   const config: AppConfig = {
     mode: generationMode(),
     worldLabsConfigured: Boolean(worldLabsKey()),
     falEnabled: Boolean(falKey()),
     model: WORLDLABS_MODEL,
     quotes: {
-      nonPano: {
-        totalCredits: nonPano.totalCredits,
-        usd: nonPano.usd,
-        usdLabel: nonPano.usdLabel,
-        panoCredits: nonPano.panoCredits,
-        worldCredits: nonPano.worldCredits,
-      },
-      pano: {
-        totalCredits: pano.totalCredits,
-        usd: pano.usd,
-        usdLabel: pano.usdLabel,
-        panoCredits: pano.panoCredits,
-        worldCredits: pano.worldCredits,
-      },
+      nonPano: publicQuote(nonPano),
+      pano: publicQuote(pano),
+      multiImage: publicQuote(multiImage),
     },
     creditsPerDollar: CREDITS_PER_DOLLAR,
     pricingDocsUrl: PRICING_DOCS_URL,
   };
   return Response.json(config);
+}
+
+function publicQuote(quote: ReturnType<typeof quoteMarbleGeneration>) {
+  return {
+    totalCredits: quote.totalCredits,
+    usd: quote.usd,
+    usdLabel: quote.usdLabel,
+    panoCredits: quote.panoCredits,
+    worldCredits: quote.worldCredits,
+  };
 }

@@ -1,3 +1,4 @@
+import { MAX_WORLD_IMAGES } from "./images";
 import { CREDITS_PER_DOLLAR, formatUsd, roundUsd, WORLDLABS_MODEL } from "./pricing";
 import type { OperationCharge, PublicOperation, SplatVariant } from "./types";
 
@@ -15,11 +16,19 @@ const VARIANT_LABELS: Record<string, string> = {
 
 const VARIANT_ORDER = ["100k", "150k", "500k", "full_res"];
 
-export type StartWorldInput = {
-  apiKey: string;
+export type WorldImageUpload = {
   bytes: Uint8Array;
   fileName: string;
   extension: string;
+};
+
+export type StartWorldInput = {
+  apiKey: string;
+  bytes?: Uint8Array;
+  fileName?: string;
+  extension?: string;
+  /** Two or more images use multi-image auto layout. One image keeps the single-image prompt. */
+  images?: WorldImageUpload[];
   displayName: string;
   isPano: boolean;
   textPrompt?: string;
@@ -28,55 +37,18 @@ export type StartWorldInput = {
 
 export async function startWorldGeneration(input: StartWorldInput): Promise<string> {
   const fetchImpl = input.fetchImpl ?? fetch;
-  const prepared = await worldLabsJson(fetchImpl, input.apiKey, "/media-assets:prepare_upload", {
-    method: "POST",
-    body: {
-      file_name: sanitizeFileName(input.fileName),
-      kind: "image",
-      extension: input.extension,
-    },
-  });
-
-  const media = asRecord(prepared.media_asset);
-  const mediaAssetId = stringField(media, "media_asset_id") || stringField(media, "id");
-  const uploadInfo = asRecord(prepared.upload_info);
-  const uploadUrl = stringField(uploadInfo, "upload_url");
-  if (!mediaAssetId || !uploadUrl) {
-    throw new WorldLabsError("World Labs did not return a media asset id and upload URL.", 502);
+  const images = imagesFromInput(input);
+  const mediaAssetIds: string[] = [];
+  for (const image of images) {
+    mediaAssetIds.push(await uploadImage(fetchImpl, input.apiKey, image));
   }
 
-  const headers = new Headers();
-  const required = asRecord(uploadInfo.required_headers);
-  for (const [key, value] of Object.entries(required)) {
-    if (typeof value === "string") headers.set(key, value);
-  }
-  const method = stringField(uploadInfo, "upload_method") || "PUT";
-  const payload = new ArrayBuffer(input.bytes.byteLength);
-  new Uint8Array(payload).set(input.bytes);
-  const upload = await fetchImpl(uploadUrl, {
-    method,
-    headers,
-    body: payload,
-  });
-  if (!upload.ok) {
-    throw new WorldLabsError(`World Labs media upload failed (${upload.status}).`, upload.status);
-  }
-
-  const textPrompt = input.textPrompt?.trim();
   const operation = await worldLabsJson(fetchImpl, input.apiKey, "/worlds:generate", {
     method: "POST",
     body: {
       display_name: input.displayName.slice(0, DISPLAY_NAME_MAX),
       model: WORLDLABS_MODEL,
-      world_prompt: {
-        type: "image",
-        image_prompt: {
-          source: "media_asset",
-          media_asset_id: mediaAssetId,
-        },
-        is_pano: input.isPano,
-        ...(textPrompt ? { text_prompt: textPrompt.slice(0, 2000) } : {}),
-      },
+      world_prompt: worldPrompt(mediaAssetIds, input.isPano, input.textPrompt),
     },
   });
 
@@ -178,6 +150,86 @@ export function assetUrl(operation: PublicOperation, asset: string, variant?: st
   if (asset === "thumbnail") return operation.thumbnailUrl;
   if (asset === "collider") return operation.colliderMeshUrl;
   return null;
+}
+
+function imagesFromInput(input: StartWorldInput): WorldImageUpload[] {
+  const images = input.images?.length
+    ? input.images
+    : input.bytes && input.fileName && input.extension
+      ? [{ bytes: input.bytes, fileName: input.fileName, extension: input.extension }]
+      : [];
+  if (images.length < 1) throw new WorldLabsError("Choose a photograph.", 400);
+  if (images.length > MAX_WORLD_IMAGES) {
+    throw new WorldLabsError("Auto layout accepts up to 8 photos of the same space.", 400);
+  }
+  if (input.isPano && images.length > 1) {
+    throw new WorldLabsError("A 360° panorama can't be combined with other images.", 400);
+  }
+  return images;
+}
+
+function worldPrompt(mediaAssetIds: string[], isPano: boolean, textPrompt: string | undefined) {
+  const text = textPrompt?.trim();
+  const note = text ? { text_prompt: text.slice(0, 2000) } : {};
+  if (mediaAssetIds.length === 1) {
+    return {
+      type: "image" as const,
+      image_prompt: {
+        source: "media_asset" as const,
+        media_asset_id: mediaAssetIds[0],
+      },
+      is_pano: isPano,
+      ...note,
+    };
+  }
+  return {
+    type: "multi-image" as const,
+    reconstruct_images: true,
+    multi_image_prompt: mediaAssetIds.map((mediaAssetId) => ({
+      content: {
+        source: "media_asset" as const,
+        media_asset_id: mediaAssetId,
+      },
+    })),
+    ...note,
+  };
+}
+
+async function uploadImage(fetchImpl: typeof fetch, apiKey: string, image: WorldImageUpload): Promise<string> {
+  const prepared = await worldLabsJson(fetchImpl, apiKey, "/media-assets:prepare_upload", {
+    method: "POST",
+    body: {
+      file_name: sanitizeFileName(image.fileName),
+      kind: "image",
+      extension: image.extension,
+    },
+  });
+
+  const media = asRecord(prepared.media_asset);
+  const mediaAssetId = stringField(media, "media_asset_id") || stringField(media, "id");
+  const uploadInfo = asRecord(prepared.upload_info);
+  const uploadUrl = stringField(uploadInfo, "upload_url");
+  if (!mediaAssetId || !uploadUrl) {
+    throw new WorldLabsError("World Labs did not return a media asset id and upload URL.", 502);
+  }
+
+  const headers = new Headers();
+  const required = asRecord(uploadInfo.required_headers);
+  for (const [key, value] of Object.entries(required)) {
+    if (typeof value === "string") headers.set(key, value);
+  }
+  const method = stringField(uploadInfo, "upload_method") || "PUT";
+  const payload = new ArrayBuffer(image.bytes.byteLength);
+  new Uint8Array(payload).set(image.bytes);
+  const upload = await fetchImpl(uploadUrl, {
+    method,
+    headers,
+    body: payload,
+  });
+  if (!upload.ok) {
+    throw new WorldLabsError(`World Labs media upload failed (${upload.status}).`, upload.status);
+  }
+  return mediaAssetId;
 }
 
 export class WorldLabsError extends Error {

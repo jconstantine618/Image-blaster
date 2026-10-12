@@ -69,6 +69,13 @@ export type AppConfig = {
       panoCredits: number;
       worldCredits: number;
     };
+    multiImage: {
+      totalCredits: number;
+      usd: number;
+      usdLabel: string;
+      panoCredits: number;
+      worldCredits: number;
+    };
   };
   creditsPerDollar: number;
   pricingDocsUrl: string;

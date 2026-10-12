@@ -18,3 +18,12 @@ test("marble-1.1 panorama skips the pano charge", () => {
   assert.equal(quote.usd, 1.2);
   assert.equal(quote.usdLabel, "$1.20");
 });
+
+test("marble-1.1 multi-image auto layout is about $1.28", () => {
+  const quote = quoteMarbleGeneration("multi-image");
+  assert.equal(quote.panoCredits, 100);
+  assert.equal(quote.worldCredits, 1500);
+  assert.equal(quote.totalCredits, 1600);
+  assert.equal(quote.usd, 1.28);
+  assert.equal(quote.usdLabel, "$1.28");
+});

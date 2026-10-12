@@ -1,13 +1,13 @@
 # Image Blaster
 
-Photograph in, explorable 3D world out. This is John Constantine’s web app for the [image-blaster](https://github.com/neilsonnn/image-blaster) pipeline: upload a still, generate a Gaussian splat environment with World Labs Marble, then walk around it in the browser and download it.
+Photograph in, explorable 3D world out. This is John Constantine’s web app for the [image-blaster](https://github.com/neilsonnn/image-blaster) pipeline: upload one still, or up to eight overlapping photos of the same space, generate a Gaussian splat environment with World Labs Marble, then walk around it in the browser and download it.
 
 The original project is MIT-licensed (Neilson Koerner-Safrata, 2026). Its license is in [NOTICE.md](NOTICE.md). This app keeps the same shape — `marble-1.1` for the world, and, optionally, FAL for Nano Banana edits, Hunyuan 3D meshes, and ElevenLabs sound — but it does not run the Claude Code CLI.
 
 ## What you can do
 
-1. Drop a JPEG, PNG, or WebP on the home page. The estimate is shown before anything is sent.
-2. The server uploads the image to World Labs and calls `POST /marble/v1/worlds:generate` with model `marble-1.1`.
+1. Drop one JPEG, PNG, or WebP on the home page, or up to eight of the same space. The estimate is shown before anything is sent.
+2. The server uploads each image to World Labs and calls `POST /marble/v1/worlds:generate` with model `marble-1.1`. One photo stays an image prompt. Several photos use a multi-image prompt with auto layout.
 3. The browser polls `GET /marble/v1/operations/{operation_id}` through this app. Generation takes minutes, so no single serverless request waits for it.
 4. When the operation completes, fly through the splat and download it. Live worlds also offer the panorama, the collider mesh, and a link to Marble when World Labs returns them.
 
@@ -23,8 +23,9 @@ For `marble-1.1`:
 | --- | --- | --- | --- | --- |
 | Ordinary photo (`is_pano: false`) | 80 | 1,500 | 1,580 | **$1.26** |
 | Equirectangular panorama (`is_pano: true`) | 0 | 1,500 | 1,500 | $1.20 |
+| Several photos, auto layout | 100 | 1,500 | 1,600 | **$1.28** |
 
-The upload screen uses the ordinary-photo figure unless you mark the file as a 360° panorama. Media upload and operation polling do not themselves cost credits. A low balance can still finish a request and create an overage invoice; the pricing page explains that.
+The upload screen uses the ordinary-photo figure for one photo, the panorama figure when that photo is marked 360°, and the multi-image figure for 2–8 photos. A panorama can't be combined with other images. Media upload and operation polling do not themselves cost credits. A low balance can still finish a request and create an overage invoice; the pricing page explains that.
 
 World names are sent as `display_name` and capped at 64 characters. `is_pano` is a JSON boolean (`false` for an ordinary photo, `true` for a panorama), which is what the live API accepts. A completed operation includes `cost.total_credits` and line items. The viewer shows that settled charge next to the estimate from the table above.
 
@@ -52,8 +53,10 @@ Create a World Labs key from the platform API keys page after adding API credits
 
 1. `POST /marble/v1/media-assets:prepare_upload`
 2. `PUT` the image to the returned signed URL
-3. `POST /marble/v1/worlds:generate` with `source: "media_asset"`, model `marble-1.1`, and `is_pano` as the boolean `false` or `true`
+3. `POST /marble/v1/worlds:generate` with model `marble-1.1`. One photo uses `type: "image"`, `source: "media_asset"`, and `is_pano` as the boolean `false` or `true`. Two to eight photos use `type: "multi-image"` with `reconstruct_images: true` and a `multi_image_prompt` entry per media asset. Azimuth is omitted so World Labs auto-layout places the shots.
 4. `GET /marble/v1/operations/{operation_id}` until `done` is true
+
+Auto layout reconstructs one space. The photos should overlap, come from about the same spot, and share good, consistent light. They also have to share one resolution and aspect ratio; the uploader crops mismatched shots to the first photo's frame and keeps the set under the request-body limit. A 360° panorama stays a single image.
 
 Live operations report a status and a description. They do not report a numeric progress fraction, so the waiting screen uses an indeterminate bar and that description. Mock mode still shows a real percent over its eight-second run.
 

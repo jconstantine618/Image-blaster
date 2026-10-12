@@ -131,6 +131,95 @@ test("fetchOperation polls GET /operations/{id} and reads splat urls", async () 
   assert.equal(assetUrl(operation, "splat"), "https://cdn.example/100k.spz");
 });
 
+test("multi-image auto layout uploads each photo and omits azimuth", async () => {
+  let prepares = 0;
+  const calls: { url: string; body?: string }[] = [];
+  const fetchImpl: typeof fetch = async (input, init) => {
+    const url = String(input);
+    const headers = new Headers(init?.headers);
+    const body = typeof init?.body === "string" ? init.body : undefined;
+    calls.push({ url, body });
+    if (url.endsWith("/media-assets:prepare_upload")) {
+      prepares += 1;
+      return json({
+        media_asset: { media_asset_id: `asset-${prepares}` },
+        upload_info: {
+          upload_url: `https://uploads.example/put-${prepares}`,
+          upload_method: "PUT",
+          required_headers: {},
+        },
+      });
+    }
+    if (url.startsWith("https://uploads.example/put-")) {
+      assert.equal(headers.get("WLT-Api-Key"), null);
+      return new Response(null, { status: 200 });
+    }
+    if (url.endsWith("/worlds:generate")) return json({ operation_id: "op-multi" });
+    throw new Error(`unexpected ${url}`);
+  };
+
+  const operationId = await startWorldGeneration({
+    apiKey: "secret-key",
+    images: [
+      { bytes: new Uint8Array([1]), fileName: "front.jpg", extension: "jpg" },
+      { bytes: new Uint8Array([2]), fileName: "side.jpg", extension: "jpg" },
+    ],
+    displayName: "Room",
+    isPano: false,
+    textPrompt: "A quiet room",
+    fetchImpl,
+  });
+
+  assert.equal(operationId, "op-multi");
+  assert.equal(calls.length, 5);
+  const generate = JSON.parse(calls.find((call) => call.url.endsWith("/worlds:generate"))?.body ?? "{}") as {
+    model: string;
+    world_prompt: {
+      type: string;
+      reconstruct_images: boolean;
+      is_pano?: unknown;
+      text_prompt?: string;
+      multi_image_prompt: { azimuth?: number; content: { source: string; media_asset_id: string } }[];
+    };
+  };
+  assert.equal(generate.model, "marble-1.1");
+  assert.equal(generate.world_prompt.type, "multi-image");
+  assert.equal(typeof generate.world_prompt.reconstruct_images, "boolean");
+  assert.equal(generate.world_prompt.reconstruct_images, true);
+  assert.equal("is_pano" in generate.world_prompt, false);
+  assert.equal(generate.world_prompt.text_prompt, "A quiet room");
+  assert.deepEqual(generate.world_prompt.multi_image_prompt, [
+    { content: { source: "media_asset", media_asset_id: "asset-1" } },
+    { content: { source: "media_asset", media_asset_id: "asset-2" } },
+  ]);
+  assert.equal(calls.some((call) => call.url.includes("/operations/")), false);
+});
+
+test("nine images and a panorama mixed with photos are refused before upload", async () => {
+  const fetchImpl: typeof fetch = async () => {
+    throw new Error("should not call World Labs");
+  };
+  const images = Array.from({ length: 9 }, (_, index) => ({
+    bytes: new Uint8Array([index]),
+    fileName: `photo-${index}.jpg`,
+    extension: "jpg",
+  }));
+  await assert.rejects(
+    () => startWorldGeneration({ apiKey: "secret-key", images, displayName: "Room", isPano: false, fetchImpl }),
+    /8 photos/,
+  );
+  await assert.rejects(
+    () => startWorldGeneration({
+      apiKey: "secret-key",
+      images: images.slice(0, 2),
+      displayName: "Room",
+      isPano: true,
+      fetchImpl,
+    }),
+    /panorama/,
+  );
+});
+
 test("is_pano true is sent as a boolean", async () => {
   let isPano: unknown;
   const fetchImpl: typeof fetch = async (input, init) => {

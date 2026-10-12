@@ -4,8 +4,10 @@
  *
  * Standard models bill 1,500 credits for world generation.
  * A non-panorama image also bills 80 credits to generate the panorama first.
+ * Multi-image auto layout bills 100 credits for that panorama step.
  * Credits are sold at $1.00 per 1,250 credits.
  * 1,580 / 1,250 = $1.264, shown as $1.26.
+ * 1,600 / 1,250 = $1.28.
  */
 
 export const WORLDLABS_MODEL = "marble-1.1" as const;
@@ -14,7 +16,7 @@ export const CREDITS_PER_DOLLAR = 1250;
 
 export const PRICING_DOCS_URL = "https://docs.worldlabs.ai/api/pricing";
 
-export type ImageKind = "non-pano" | "pano";
+export type ImageKind = "non-pano" | "pano" | "multi-image";
 
 export type GenerationQuote = {
   model: typeof WORLDLABS_MODEL;
@@ -29,6 +31,7 @@ export type GenerationQuote = {
 const PANO_CREDITS: Record<ImageKind, number> = {
   pano: 0,
   "non-pano": 80,
+  "multi-image": 100,
 };
 
 const WORLD_CREDITS = 1500;

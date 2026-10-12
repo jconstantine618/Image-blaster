@@ -1,5 +1,6 @@
+import { generationKind, matchingFrames, validateGenerationFiles } from "@/lib/generation-request";
 import { generationMode, worldLabsKey } from "@/lib/env";
-import { imageExtension, MAX_IMAGE_BYTES } from "@/lib/images";
+import { imageExtension } from "@/lib/images";
 import { createMockOperationId } from "@/lib/mock-world";
 import { quoteMarbleGeneration } from "@/lib/pricing";
 import { DISPLAY_NAME_MAX, startWorldGeneration, WorldLabsError } from "@/lib/worldlabs";
@@ -10,22 +11,33 @@ export const maxDuration = 60;
 
 export async function POST(request: Request) {
   const form = await request.formData();
-  const image = form.get("image");
-  if (!(image instanceof File)) {
-    return Response.json({ error: "Choose a JPEG, PNG, or WebP photograph." }, { status: 400 });
-  }
-  const extension = imageExtension(image);
-  if (!extension) {
-    return Response.json({ error: "Use a JPEG, PNG, or WebP image." }, { status: 400 });
-  }
-  if (image.size <= 0 || image.size > MAX_IMAGE_BYTES) {
-    return Response.json({ error: "Image must be under 4 MB. The uploader compresses photos before sending." }, { status: 413 });
+  const files = form.getAll("image").filter((entry): entry is File => entry instanceof File);
+  const isPano = form.get("isPano") === "true";
+  const checked = validateGenerationFiles(files, isPano);
+  if (!checked.ok) {
+    return Response.json({ error: checked.error }, { status: checked.status });
   }
 
-  const isPano = form.get("isPano") === "true";
+  const images = [];
+  for (const file of files) {
+    const extension = imageExtension(file);
+    if (!extension) {
+      return Response.json({ error: "Use a JPEG, PNG, or WebP image." }, { status: 400 });
+    }
+    images.push({
+      bytes: new Uint8Array(await file.arrayBuffer()),
+      fileName: file.name || `photo.${extension}`,
+      extension,
+    });
+  }
+  if (images.length > 1) {
+    const frames = matchingFrames(images.map((image) => image.bytes));
+    if (!frames.ok) return Response.json({ error: frames.error }, { status: 400 });
+  }
+
   const displayName = stringField(form.get("displayName"), "Untitled world").slice(0, DISPLAY_NAME_MAX);
   const textPrompt = stringField(form.get("textPrompt"), "").trim();
-  const quote = quoteMarbleGeneration(isPano ? "pano" : "non-pano");
+  const quote = quoteMarbleGeneration(generationKind(images.length, isPano));
 
   if (generationMode() === "mock") {
     return Response.json({
@@ -41,12 +53,9 @@ export async function POST(request: Request) {
   }
 
   try {
-    const bytes = new Uint8Array(await image.arrayBuffer());
     const operationId = await startWorldGeneration({
       apiKey,
-      bytes,
-      fileName: image.name || `photo.${extension}`,
-      extension,
+      images,
       displayName,
       isPano,
       textPrompt: textPrompt || undefined,
